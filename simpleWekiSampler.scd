@@ -40,14 +40,14 @@ SynthDef.new(\simplePlayerStereo, {|bufNum, amp = 0, loop = 0, trig = 1, rate = 
 (
 
 var w, addSample, sampleSelector, moveUp, moveDown,
-delButt, loadSample, playSample, clearAll, currentSample = 0,
+delButt, loadSample, playSample, clearAll, currentSample = 0, calcSampleRatesFunc,
 selSamplesBut, selSamplesFunc, selSamplesList, selSamples, selRates, selRateFunc, isMet;
 //beats variables
 var avPhraseLength = 4,
 loopSynths = Array.newClear(4),
 metronome, tempoClock, currBeat, tempoSlide, port, rateMod = 1;
 
-port = NetAddr.new("192.168.1.3", 7771);    // create the NetAddr
+port = NetAddr.new("192.168.0.1", 8000);    // create the NetAddr
 
 
 tempoClock = TempoClock.new;
@@ -64,7 +64,15 @@ g = FlowView.new(w, Rect(320,0,320,480));
 loadSample = {
 	Dialog.openPanel({ arg path;
 
+		loopSynths.size().do{|count|
+			loopSynths[count].set(\trig, 0);
+		};
+
 		avPhraseLength = 0;
+
+		selSamplesList.items = Array.new();
+		selSamples = Array.new();
+		selRates = Array.newClear(4);
 
 		path.size().do{|i|
 			var item, label;
@@ -73,19 +81,37 @@ loadSample = {
 			label = path[i];
 			label = label.split;
 			label = label[label.size()-1].asSymbol;
-
-			//("loading " ++ item ++ "... ").postln;
-
-			~sampleArray = ~sampleArray.add(
-				Buffer.read(s, item);
-			);
-
-
 			sampleSelector.addItem(label);
+
+			{
+
+				~sampleArray = ~sampleArray.add(
+					Buffer.read(s, item);
+				);
+
+				s.sync;
+
+				("loaded " ++ item ++ "... ").postln;
+
+			}.fork;
+
+
+
 			currentSample = 0;
+
+
 		};
 
-		{
+		calcSampleRatesFunc.value();
+
+		},{
+			"cancelled".postln;
+	},true);
+};
+
+calcSampleRatesFunc = {
+
+	{
 			2.wait;
 
 			~sampleArray.size().do{|count|
@@ -95,6 +121,7 @@ loadSample = {
 			avPhraseLength = avPhraseLength/~sampleArray.size();
 			tempoClock.tempo = 1/(avPhraseLength/(44100*16));
 
+		    metronome.stop;
 			metronome = Task({
 
 				currBeat = -1;
@@ -133,9 +160,6 @@ loadSample = {
 
 		}.fork;
 
-		},{
-			"cancelled".postln;
-	},true);
 };
 
 
@@ -281,6 +305,13 @@ delButt = ActionButton(f,"delete from bank",{
 },minWidth: 100, minHeight: 40);
 
 clearAll = ActionButton(f,"clear all samples",{
+
+	loopSynths.size().do{|count|
+		loopSynths[count].set(\trig, 0);
+	};
+
+	metronome.stop;
+
 	"clear all samples".postln;
 	~sampleArray.size().do{|c|
 		~sampleArray[c].free;
@@ -357,7 +388,13 @@ OSCdef(\param, {|msg|
 		if(currentSample == 4,
 
 			{
-				AppClock.sched(0,selSamplesFunc);
+				4.do{|ct|
+						loopSynths[ct].set(\amp, 0);
+				};
+
+				//uncomment for changing samples with weki
+				//AppClock.sched(0,selSamplesFunc);
+				//
 
 			}, {
 
